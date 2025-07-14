@@ -1,12 +1,76 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ResponseStream } from './ResponseStream';
 import { generateResponse } from '../services/gemini';
+import {
+  getMemoryFacts,
+  setMemoryFacts,
+  addMemoryFact,
+  extractFactAuto,
+  MEMORY_KEY
+} from '../utils/memory';
 
 interface Message {
   id: string;
   text: string;
   isUser: boolean;
   timestamp: Date;
+}
+
+// Memory modes
+type MemoryMode = 'none' | 'explicit' | 'automatic' | 'both';
+
+// Helper: get/set memory in localStorage
+// function getMemoryFacts(): string[] {
+//   try {
+//     const data = localStorage.getItem(MEMORY_KEY);
+//     return data ? JSON.parse(data) : [];
+//   } catch {
+//     return [];
+//   }
+// }
+// function setMemoryFacts(facts: string[]) {
+//   localStorage.setItem(MEMORY_KEY, JSON.stringify(facts));
+// }
+
+// Helper: add a fact
+// function addMemoryFact(fact: string) {
+//   const facts = getMemoryFacts();
+//   if (!facts.includes(fact)) {
+//     facts.push(fact);
+//     setMemoryFacts(facts);
+//   }
+// }
+
+// Helper: extract facts automatically (very simple heuristic)
+// function extractFactAuto(message: string): string | null {
+//   // Example: "my name is John", "I live in Paris", "my birthday is July 14"
+//   const patterns = [
+//     /my name is ([^.,!\n]+)/i,
+//     /i am ([^.,!\n]+)/i,
+//     /i live in ([^.,!\n]+)/i,
+//     /my birthday is ([^.,!\n]+)/i,
+//     /my favorite ([^ ]+) is ([^.,!\n]+)/i
+//   ];
+//   for (const pat of patterns) {
+//     const match = message.match(pat);
+//     if (match) {
+//       return message.trim();
+//     }
+//   }
+//   return null;
+// }
+
+// Add a function to filter relevant facts
+function getRelevantFacts(facts: string[], message: string): string[] {
+  const messageWords = new Set(message.toLowerCase().split(/\W+/));
+  return facts.filter(fact => {
+    const factWords = new Set(fact.toLowerCase().split(/\W+/));
+    // Check for any word overlap
+    for (const word of factWords) {
+      if (word.length > 2 && messageWords.has(word)) return true;
+    }
+    return false;
+  });
 }
 
 const ChatBox = () => {
@@ -26,6 +90,15 @@ const ChatBox = () => {
   });
   const [showAsk, setShowAsk] = useState(true);
   const hasUserApiKey = typeof window !== 'undefined' && !!localStorage.getItem('gemini_api_key');
+  // Remove the memoryMode state and toggle UI, set memoryMode to 'automatic' directly
+  const memoryMode: MemoryMode = 'automatic';
+
+  // Save memory mode to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('chatbox_memory_mode', memoryMode);
+    }
+  }, [memoryMode]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -68,10 +141,22 @@ const ChatBox = () => {
     const userMessage = input.trim();
     setInput('');
     addMessage(userMessage, true);
+
+    // Memory logic (automatic only)
+    const autoFact = extractFactAuto(userMessage);
+    if (autoFact) addMemoryFact(autoFact);
+
     setIsLoading(true);
     setStreamingResponse('');
     try {
-      const responseStream = await generateResponse(userMessage);
+      // Only include relevant memory facts in the prompt
+      let memoryFacts = getMemoryFacts();
+      let relevantFacts = getRelevantFacts(memoryFacts, userMessage);
+      let prompt = userMessage;
+      if (relevantFacts.length > 0) {
+        prompt = `Here are some facts to remember about the user: ${relevantFacts.join('; ')}\n\nUser: ${userMessage}`;
+      }
+      const responseStream = await generateResponse(prompt);
       let fullResponse = '';
       for await (const chunk of responseStream) {
         fullResponse += chunk;
@@ -235,7 +320,6 @@ const ChatBox = () => {
                     <div className="whitespace-pre-line text-base sm:text-base font-light tracking-wide text-gray-100" style={{margin: '0.25rem 0', maxWidth: '90%', background: 'none', boxShadow: 'none', border: 'none', padding: 0}}>
                       <ResponseStream
                         textStream={streamingResponse}
-                        mode="fade"
                         fadeDuration={1200}
                         segmentDelay={100}
                         className="text-base font-light tracking-wide"

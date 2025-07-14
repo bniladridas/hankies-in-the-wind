@@ -9,7 +9,7 @@ const Header = () => {
             CLI
           </div>
           <div className="text-gray-600 text-sm font-light tracking-wide opacity-0 animate-[fadeIn_1s_ease-out_0.4s_forwards]">
-            STORE
+            TOOLS
           </div>
         </div>
       </div>
